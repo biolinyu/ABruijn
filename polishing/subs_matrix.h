@@ -55,6 +55,7 @@ public:
 		{}
 		uint32_t id;
 		bool extactMatch;
+		float readLikelihood;
 	};
 	typedef std::vector<Observation> ObsVector;
 
@@ -68,7 +69,7 @@ public:
 								size_t start = 0, 
 								size_t end = std::string::npos);
 
-	//static std::string obsToStr(Observation obs);
+	static std::string obsToStr(Observation obs, char nucl);
 private:
 	void loadMatrix(const std::string& filaName);
 

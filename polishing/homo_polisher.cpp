@@ -12,9 +12,10 @@
 namespace
 {
 	//Computes global pairwise alignment with custom substitution matrix
-	void pairwiseAlignment(const std::string& seqOne, const std::string& seqTwo,
-						   const SubstitutionMatrix& subsMat,
-						   std::string& outOne, std::string& outTwo)
+	//and returns both alignment and score
+	float pairwiseAlignment(const std::string& seqOne, const std::string& seqTwo,
+						    const SubstitutionMatrix& subsMat,
+						    std::string& outOne, std::string& outTwo)
 	{
 		Matrix<float> scoreMat(seqOne.length() + 1, seqTwo.length() + 1);
 		Matrix<char> backtrackMat(seqOne.length() + 1, seqTwo.length() + 1);
@@ -95,11 +96,14 @@ namespace
 		std::reverse(outTwo.begin(), outTwo.end());
 		outOne += "$";
 		outTwo += "$";
+
+		return scoreMat.at(seqOne.length(), seqTwo.length());
 	}
 
 	//Splits aligned strings into homopolymer runs (wrt to candAln)
 	std::vector<std::pair<HopoMatrix::State, HopoMatrix::Observation>>
-	splitBranchHopos(const std::string& candAln, const std::string& branchAln)
+	splitBranchHopos(const std::string& candAln, const std::string& branchAln,
+					 float readLikelihood)
 	{
 		//std::cerr << candAln << std::endl << branchAln << std::endl << std::endl;
 		std::vector<std::pair<HopoMatrix::State, 
@@ -151,14 +155,19 @@ namespace
 					auto observ = HopoMatrix::strToObs(state.nucl, branchAln, 
 													   branchPrevPos, branchPos);
 					observ.extactMatch = leftMatch && rightMatch;
+					observ.readLikelihood = readLikelihood;
 					result.emplace_back(state, observ);
 
-					/*if (hopoCount == 45)
+					//std::cout << state.length << state.nucl << " " 
+					//		  << HopoMatrix::obsToStr(observ, state.nucl) << std::endl;
+					/*
+					if (hopoCount == 12)
 					std::cerr << state.length << state.nucl << " "
 							  << branchAln.substr(branchPrevPos, branchPos - branchPrevPos) << 
 							  "\t" << branchAln.substr(branchPrevPos - 1, 
 							  						   branchPos - branchPrevPos + 2) 
-							  << std::endl;*/
+							  << std::endl;
+							  */
 
 					prevNucl = candAln[pos];
 					prevPos = pos - gapLength;
@@ -172,30 +181,47 @@ namespace
 			}
 		}
 
-		//std::cout << "----\n\n";
 		return result;
 	}
 }
 
-//processes a single bubble
-void HomoPolisher::polishBubble(Bubble& bubble) const
+/*
+float _mean(const std::vector<float>& vals)
 {
-	//if (bubble.position != 139807) return;
-	std::string prevCandidate;
-	std::string curCandidate = bubble.candidate;
+	float sum = 0;
+	for(float v : vals) sum += v;
+	return (float)sum / vals.size();
+};
 
-	std::vector<HopoMatrix::State> states;
-	std::vector<HopoMatrix::ObsVector> observations;
+float _std(const std::vector<float>& vals)
+{
+	float mean = _mean(vals);
+	float sumStd = 0.0f;
+	for (float v : vals) sumStd += (v - mean) * (v - mean);
+	return sqrt(sumStd / vals.size());  
+};
 
+float normal_pdf(float x, float m, float s)
+{
+    static const float inv_sqrt_2pi = 0.3989422804014327;
+    float a = (x - m) / s;
+
+    return inv_sqrt_2pi / s * std::exp(-0.5f * a * a);
+}*/
+
+
+void splitBubble(const Bubble& bubble, std::vector<HopoMatrix::State>& states,
+				 std::vector<HopoMatrix::ObsVector>& observations,
+				 const SubstitutionMatrix& subsMatrix)
+{
 	for (auto& branch : bubble.branches)
 	{
 		std::string alnCand;
 		std::string alnBranch;
-		pairwiseAlignment(bubble.candidate, branch, _subsMatrix,
-						  alnCand, alnBranch);
+		float score = pairwiseAlignment(bubble.candidate, branch, subsMatrix,
+						  				alnCand, alnBranch);
 
-		//std::cout << alnCand << std::endl << alnBranch << std::endl << std::endl;
-		auto splitHopo = splitBranchHopos(alnCand, alnBranch);
+		auto splitHopo = splitBranchHopos(alnCand, alnBranch, score);
 		if (states.empty())
 		{
 			states.assign(splitHopo.size(), HopoMatrix::State());
@@ -209,26 +235,85 @@ void HomoPolisher::polishBubble(Bubble& bubble) const
 			observations[i].push_back(splitHopo[i].second);
 		}
 	}
+}
 
+//processes a single bubble
+void HomoPolisher::polishBubble(Bubble& bubble) const
+{
+	//if (bubble.position != 88714) return;
+	std::string prevCandidate;
+	std::string curCandidate = bubble.candidate;
+
+	std::vector<HopoMatrix::State> states;
+	std::vector<HopoMatrix::ObsVector> observations;
+	splitBubble(bubble, states, observations, _subsMatrix);
+
+	const size_t MIN_HOPO = 1;
+	const size_t MAX_HOPO = 10;
+
+	typedef std::pair<double, size_t> ScorePair;
 	std::string newConsensus;
-	//std::cerr << curCandidate << std::endl;
+	//std::cerr << bubble.position << std::endl;
+	size_t candPos = 0;
 	for (size_t i = 0; i < states.size(); ++i)
 	{
 		size_t length = states[i].length;
-		//std::cerr << states[i].length << states[i].nucl << std::endl;
 		if (length > 1)	//only homopolymers
 		{
-			length = this->mostLikelyLen(states[i].nucl, observations[i]);
-		}
-		newConsensus += std::string(length, states[i].nucl);
-		/*if (len != (size_t)states[i].length)
-		{
+			/////////
+			std::vector<ScorePair> scores;
+			for (size_t len = std::max(MIN_HOPO, length - 1); 
+				 len <= std::min(MAX_HOPO, length + 1); ++len)
+			{
+				/////////
+				std::vector<HopoMatrix::State> newStates;
+				std::vector<HopoMatrix::ObsVector> newObs;
+				Bubble newBubble(bubble);
+				newBubble.candidate = newBubble.candidate.substr(0, candPos) +
+								  	  std::string(len, states[i].nucl) +
+									  newBubble.candidate.substr(candPos + length);
+				//std::cerr << bubble.candidate << std::endl << newBubble.candidate << std::endl << std::endl;
+				splitBubble(newBubble, newStates, newObs, _subsMatrix);
 
-			std::cout << (int)states[i].length << states[i].nucl 
-					  << " -> " << len << std::endl;
+				auto newState = HopoMatrix::State(states[i].nucl, len);
+				double likelihood = this->likelihood(newState, newObs[i]);
+				scores.push_back(std::make_pair(likelihood, len));
+				std::cerr << likelihood << " ";
+			}
+			std::cerr << std::endl;
+
+			std::sort(scores.begin(), scores.end(), 
+					  [](const ScorePair& p1, const ScorePair& p2)
+					  {return p1.first > p2.first;});
+
+			size_t maxRun = this->compareTopTwo(states[i].nucl, scores[0].second, 
+												scores[1].second, observations[i]);
+			length = scores[0].second;
+
+			/////////
+			//length = this->mostLikelyLen(states[i].nucl, observations[i]);
+			std::cerr << states[i].length << states[i].nucl << " -> "
+					  << length << states[i].nucl << std::endl;
+		}
+		candPos += states[i].length;
+		newConsensus += std::string(length, states[i].nucl);
+
+		/*
+		if (length != (size_t)states[i].length)
+		{
+			std::cerr << bubble.position << std::endl;
+			std::cerr << (int)states[i].length << states[i].nucl 
+					  << " -> " << length << states[i].nucl << std::endl;
 			for (auto obs : observations[i]) 
-				std::cout << HopoMatrix::obsToStr(obs) << std::endl;
-			std::cout << std::endl;
+			{
+				//bool outlier = obs.readLikelihood < mean - std;
+				auto newState = HopoMatrix::State(states[i].nucl, length);
+				std::cerr << HopoMatrix::obsToStr(obs, states[i].nucl) 
+						  << "\t" << _hopoMatrix.getObsProb(states[i], obs)
+						  << "\t" << _hopoMatrix.getObsProb(newState, obs) 
+						  << std::endl;
+			}
+			std::cerr << std::endl;
 		}*/
 	}
 
@@ -247,18 +332,14 @@ double HomoPolisher::likelihood(HopoMatrix::State state,
 								const HopoMatrix::ObsVector& observations) const
 {
 	double likelihood = 0.0f;
-	int total = 0;
 	for (auto obs : observations)
 	{
 		if (obs.extactMatch)
 		{
 			likelihood += _hopoMatrix.getObsProb(state, obs);
-			//std::cerr << obs.
-			total += 1;
 		}
 	}
-	//std::cerr << std::endl << state.length << " " << total << std::endl;
-	likelihood += _hopoMatrix.getGenomeProb(state);
+	//likelihood += _hopoMatrix.getGenomeProb(state);
 	return likelihood;
 }
 
@@ -274,7 +355,6 @@ size_t HomoPolisher::mostLikelyLen(char nucleotide,
 
 	typedef std::pair<double, size_t> ScorePair;
 	std::vector<ScorePair> scores;
-	//std::cerr << nucleotide << " ";
 	for (size_t len = MIN_HOPO; len <= MAX_HOPO; ++len)
 	{
 		auto newState = HopoMatrix::State(nucleotide, len);
@@ -290,10 +370,7 @@ size_t HomoPolisher::mostLikelyLen(char nucleotide,
 
 	size_t maxRun = this->compareTopTwo(nucleotide, scores[0].second, 
 										scores[1].second, observations);
-	//if (maxRun != scores[0].second)
-	//{
-	//	std::cout << scores[0].second << " to " << maxRun << std::endl; 
-	//}
+	//return scores[0].second;
 	return maxRun;
 }
 
@@ -306,14 +383,30 @@ size_t HomoPolisher::compareTopTwo(char nucleotide, size_t firstChoice,
 	size_t choices[] = {firstChoice, secondChoice};
 	HopoMatrix::ObsVector knownObs[2];
 
-	//std::cerr << firstChoice << " vs " << secondChoice << std::endl;
+	//std::cerr << bubble.position << std::endl;
+	/*
+	if (firstChoice > 3 && secondChoice > 3)
+	{
+		std::cerr << firstChoice << nucleotide
+				  << " vs " << secondChoice << nucleotide << std::endl;
+		for (auto obs : observations) 
+		{
+			//bool outlier = obs.readLikelihood < mean - std;
+			auto state1 = HopoMatrix::State(nucleotide, firstChoice);
+			auto state2 = HopoMatrix::State(nucleotide, secondChoice);
+			std::cerr << HopoMatrix::obsToStr(obs, nucleotide) 
+					  << "\t" << _hopoMatrix.getObsProb(state1, obs)
+					  << "\t" << _hopoMatrix.getObsProb(state2, obs) 
+					  << std::endl;
+		}
+		std::cerr << std::endl;
+	}*/
+
 	for (size_t i = 0; i < 2; ++i)
 	{
 		auto state = HopoMatrix::State(nucleotide, choices[i]);
 		knownObs[i] = _hopoMatrix.knownObservations(state);
-		//std::cerr << knownObs[i].size() << " ";
 	}
-	//std::cerr << std::endl;
 	
 	//getting common known observations
 	std::unordered_set<uint32_t> fstSet;
@@ -328,7 +421,6 @@ size_t HomoPolisher::compareTopTwo(char nucleotide, size_t firstChoice,
 	{
 		if (commonSet.count(obs.id)) commonObservations.push_back(obs);
 	}
-	//std::cerr << commonObservations.size() << std::endl;
 
 	double likelihoods[2];
 	for (size_t i = 0; i < 2; ++i)
@@ -336,7 +428,6 @@ size_t HomoPolisher::compareTopTwo(char nucleotide, size_t firstChoice,
 		auto state = HopoMatrix::State(nucleotide, choices[i]);
 		likelihoods[i] = this->likelihood(state, commonObservations);
 	}
-	//std::cerr << std::endl;
 
 	return (likelihoods[0] > likelihoods[1]) ? choices[0] : choices[1];
 }

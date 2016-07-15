@@ -205,20 +205,14 @@ HopoMatrix::Observation HopoMatrix::strToObs(char mainNucl,
 	return Observation(result);
 }
 
-/*
-std::string HopoMatrix::obsToStr(HopoMatrix::Observation obs)
+std::string HopoMatrix::obsToStr(HopoMatrix::Observation obs, char nucl)
 {
-	//ACTG
-	char NUCLS[] = "GTCA";
-	std::string result;
-	for (size_t i = 0; i < 4; ++i)
-	{
-		int num = obs.id & MAX_RUN;
-		obs.id >>= 4;
-		if (num) result += std::to_string(num) + NUCLS[i];
-	}
-	return result;
-}*/
+	int mainCount = obs.id & 15;
+	int miscCount = obs.id >> 4;
+	std::string res = std::to_string(mainCount) + nucl;
+	if (miscCount > 0) res += std::to_string(miscCount) + 'X';
+	return res;
+}
 
 HopoMatrix::HopoMatrix(const std::string& fileName)
 {
@@ -266,6 +260,7 @@ void HopoMatrix::loadMatrix(const std::string& fileName)
 	{
 		if (buffer.empty()) continue;
 		if (buffer[buffer.length() - 1] == '\r') buffer.pop_back();
+
 
 		auto tokens = splitString(buffer, '\t');
 		tokens[0].pop_back();

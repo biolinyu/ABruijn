@@ -21,7 +21,7 @@ private:
 						 const HopoMatrix::ObsVector& obs) const;
 	size_t compareTopTwo(char nucleotide, size_t firstChoice, 
 						 size_t secondChoice,
-				   		 const HopoMatrix::ObsVector& observations) const;
+				   		 const HopoMatrix::ObsVector& observationsOne) const;
 	double likelihood(HopoMatrix::State state, 
 					  const HopoMatrix::ObsVector& observations) const;
 

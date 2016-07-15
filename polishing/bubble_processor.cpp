@@ -198,6 +198,6 @@ void BubbleProcessor::cacheBubbles(int maxRead)
 	int filePos = _bubblesFile.tellg();
 	if (filePos > 0)
 	{
-		_progress.setValue(filePos);
+		//_progress.setValue(filePos);
 	}
 }
