@@ -161,7 +161,7 @@ namespace
 					//std::cout << state.length << state.nucl << " " 
 					//		  << HopoMatrix::obsToStr(observ, state.nucl) << std::endl;
 					/*
-					if (hopoCount == 12)
+					if (hopoCount == 15)
 					std::cerr << state.length << state.nucl << " "
 							  << branchAln.substr(branchPrevPos, branchPos - branchPrevPos) << 
 							  "\t" << branchAln.substr(branchPrevPos - 1, 
@@ -240,7 +240,7 @@ void splitBubble(const Bubble& bubble, std::vector<HopoMatrix::State>& states,
 //processes a single bubble
 void HomoPolisher::polishBubble(Bubble& bubble) const
 {
-	//if (bubble.position != 88714) return;
+	//if (bubble.position != 51314) return;
 	std::string prevCandidate;
 	std::string curCandidate = bubble.candidate;
 
@@ -272,13 +272,23 @@ void HomoPolisher::polishBubble(Bubble& bubble) const
 				newBubble.candidate = newBubble.candidate.substr(0, candPos) +
 								  	  std::string(len, states[i].nucl) +
 									  newBubble.candidate.substr(candPos + length);
-				//std::cerr << bubble.candidate << std::endl << newBubble.candidate << std::endl << std::endl;
 				splitBubble(newBubble, newStates, newObs, _subsMatrix);
+
+				/*
+				for (auto obs : newObs[i])
+				{
+					std::cerr << HopoMatrix::obsToStr(obs, states[i].nucl) 
+							  << "\t" << obs.extactMatch
+							  << "\t" << _hopoMatrix.getObsProb(states[i], obs)
+							  << std::endl;
+				}
+				std::cerr << std::endl;
+				*/
 
 				auto newState = HopoMatrix::State(states[i].nucl, len);
 				double likelihood = this->likelihood(newState, newObs[i]);
 				scores.push_back(std::make_pair(likelihood, len));
-				std::cerr << likelihood << " ";
+				std::cerr << likelihood << std::endl << std::endl;
 			}
 			std::cerr << std::endl;
 
