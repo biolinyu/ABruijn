@@ -296,8 +296,8 @@ void HomoPolisher::polishBubble(Bubble& bubble) const
 					  [](const ScorePair& p1, const ScorePair& p2)
 					  {return p1.first > p2.first;});
 
-			size_t maxRun = this->compareTopTwo(states[i].nucl, scores[0].second, 
-												scores[1].second, observations[i]);
+			//size_t maxRun = this->compareTopTwo(states[i].nucl, scores[0].second, 
+			//									scores[1].second, observations[i]);
 			length = scores[0].second;
 
 			/////////
@@ -349,7 +349,7 @@ double HomoPolisher::likelihood(HopoMatrix::State state,
 			likelihood += _hopoMatrix.getObsProb(state, obs);
 		}
 	}
-	//likelihood += _hopoMatrix.getGenomeProb(state);
+	likelihood += _hopoMatrix.getGenomeProb(state);
 	return likelihood;
 }
 
