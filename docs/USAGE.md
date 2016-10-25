@@ -44,7 +44,7 @@ Examples
 
 You can try ABruijn assembly on these ready-to-use datasets right away:
 
-### E. Coli Oxfore Nanopore data, released by the Loman lab:
+### E. Coli Oxford Nanopore data, released by the Loman lab:
 
     wget http://nanopore.s3.climb.ac.uk/MAP006-1_2D_pass.fasta
 	abruijn.py MAP006-PCR-1_2D_pass.fasta out_abruijn 60 --platform nano --threads 4
